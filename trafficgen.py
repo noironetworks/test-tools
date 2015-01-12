@@ -3,6 +3,7 @@
 # (it uses scapy, which requires root privileges to access low
 # level socket functionality)
 
+import json
 from scapy.all import *
 
 # The typical parameters for all of these functions
@@ -11,6 +12,10 @@ from scapy.all import *
 # comes from. It likely comes from a configuration 
 # file.
 
+CONFIG_SOURCE='source'
+CONFIG_SOURCE_FILE='file'
+DEFAULT_CFG_FILE_NAME='endpoints.json'
+EP_DB_NAME='ep-db'
 
 class TestConfig:
     '''The TestConfig class is what keeps the configuration needed
@@ -52,15 +57,45 @@ class TestConfig:
     
        OpenStack GBP Endpoint format: tbd'''
 
+    def get_config_from_file(self):
+        self.cfg_file = self.open_file(self.cfg_file_name)
+        if self.cfg_file == None:
+            print "Couldn't open file " + self.cfg_file
+            exit(1)
+        self.config[EP_DB_NAME]=json.load(self.cfg_file)
+
+    def open_file(self, filename):
+        if filename == '':
+            print "file name not set"
+            return None
+
+        f = open(filename, "r");
+        if f == None:
+            print "Error opening file " + filename
+            return None
+        return f
+
     def __init__(self):
         '''Initialize the test configuration'''
-        self.config={"ep-db": []}
+        self.config={EP_DB_NAME: [], CONFIG_SOURCE: CONFIG_SOURCE_FILE }
+        self.cfg_file_name = DEFAULT_CFG_FILE_NAME
+        self.cfg_file = None
 
-    def get_configuration():
+    def set_config_source(self, source):
+        self.config[CONFIG_SOURCE] = source
+
+    def get_configuration(self):
         '''Get the configuration used for testing.
            This includes things like the number of
            EPs, their identifiers, etc.'''
         new_config={}
+        source = self.config.get(CONFIG_SOURCE)
+        if source == None:
+            print "No configuration source set, exiting"
+            exit(1)
+        if source == CONFIG_SOURCE_FILE:
+            new_Config = self.get_config_from_file()
+            
 
         return new_config
     
