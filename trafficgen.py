@@ -12,7 +12,7 @@ from scapy.all import *
 # file.
 
 
-class TestConfig(self):
+class TestConfig:
     '''The TestConfig class is what keeps the configuration needed
        to run a given test. Initially, this just acts as a database
        of endpoints that can be used for the test.  Endpoints can 
@@ -53,7 +53,7 @@ class TestConfig(self):
        OpenStack GBP Endpoint format: tbd'''
 
     def __init__(self):
-    '''Initialize the test configuration'''
+        '''Initialize the test configuration'''
         self.config={"ep-db": []}
 
     def get_configuration():
