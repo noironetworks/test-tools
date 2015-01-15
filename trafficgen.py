@@ -17,6 +17,18 @@ CONFIG_SOURCE_FILE='file'
 DEFAULT_CFG_FILE_NAME='endpoints.json'
 EP_DB_NAME='ep-db'
 
+SNIFF_FILTER='filter'
+SNIFF_TIMEOUT='timeout'
+SNIFF_COUNT='count'
+SNIFF_STORE='store'
+SNIFF_IFACE='iface'
+
+DEFAULT_TIMEOUT=10
+
+EP_IFACE_NAME='interface-name'
+EP_MAC='mac'
+EP_IP='ip'
+
 class TestConfig:
     '''The TestConfig class is what keeps the configuration needed
        to run a given test. Initially, this just acts as a database
@@ -94,10 +106,7 @@ class TestConfig:
             print "No configuration source set, exiting"
             exit(1)
         if source == CONFIG_SOURCE_FILE:
-            new_Config = self.get_config_from_file()
-            
-
-        return new_config
+            self.get_config_from_file()
     
 
 
@@ -111,14 +120,29 @@ def send_arp_request(ep1, ep2):
     '''Send an ARP request from EP1, trying
        to resolve the IP for EP2'''
     sendp(Ether(dst="ff:ff:ff:ff:ff:ff")/
-           ARP(pdst=ep2.get("ip")),iface=ep1.get("interface-name"))
+           ARP(pdst=ep2.get(EP_IP)[0], psrc=ep1.get(EP_IP)[0]),
+                 iface=ep1.get(EP_IFACE_NAME))
+
+def wait_arp_request(ep1, ep2):
+    '''Wait for an ARP request from EP1 on EP2'''
+    opts=[]
+    opts.append(SNIFF_FILTER + "='arp'")
+    opts.append(SNIFF_TIMEOUT + "=" + str(DEFAULT_TIMEOUT))
+    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
+
+    pkts=wait_packet(opts)
+    for pkt in pkts:
+        if (ARP in pkt and pkt[ARP].op == 1 and
+            pkt[ARP].psrc == ep1.get(EP_IP)[0] and
+            pkt[ARP].pdst == ep2.get(EP_IP)[0]):
+            print "Received ARP Req from EP1 to EP2"
 
 def send_arp_request_wait(ep1, ep2):
     '''Send an ARP request from EP1, trying
        to resolve the IP for EP2, and wait
        for the response.'''
     ans,unans=srp1(Ether(dst="ff:ff:ff:ff:ff:ff")/
-        ARP(pdst=ep2.get("ip")),iface=ep1.get("interface-name"), timeout=2)
+        ARP(pdst=ep2.get(EP_IP)),iface=ep1.get(EP_IFACE_NAME), timeout=2)
     if ans == null:
         print "No response to ARP"
     else:
@@ -128,8 +152,26 @@ def send_arp_request_wait(ep1, ep2):
 def send_arp_response(ep1, ep2):
     '''Send an ARP response to EP2 from EP1,
        providing EP1's ARP resolution'''
-    sendp(Ether(src=ep2.get("mac"),dst=ep1.get("mac"))/ARP(op="is-at", 
-          psrc=ep2.get("ip"), pdst=ep1.get("ip")))
+    sendp(Ether(src=ep2.get(EP_MAC),dst=ep1.get(EP_MAC))/ARP(op="is-at", 
+          psrc=ep2.get(EP_IP), pdst=ep1.get(EP_IP)))
+
+def send_arp_request_wait(ep1, ep2):
+    '''Send an ARP request from EP1, trying
+       to resolve the IP for EP2, and wait
+       for the response.'''
+    ans,unans=srp1(Ether(dst="ff:ff:ff:ff:ff:ff")/
+        ARP(pdst=ep2.get(EP_IP)),iface=ep1.get(EP_IFACE_NAME), timeout=2)
+    if ans == null:
+        print "No response to ARP"
+    else:
+        ans.summary(lambda (s,r): r.sprintf("IP %ARP.psrc% has MAC %Ether.src%"))
+
+
+def send_arp_response(ep1, ep2):
+    '''Send an ARP response to EP2 from EP1,
+       providing EP1's ARP resolution'''
+    sendp(Ether(src=ep2.get(EP_MAC),dst=ep1.get(EP_MAC))/ARP(op="is-at", 
+          psrc=ep2.get(EP_IP), pdst=ep1.get(EP_IP)))
 
 def send_ping(ep1, ep2):
     '''Send a ping request from EP1 to EP2, but
@@ -138,17 +180,38 @@ def send_ping(ep1, ep2):
 def send_ping_wait(ep1, ep2):
     '''Send a ping request from EP1 to EP2, and
        wait for the response'''
-    ans,unans=sr(IP(dst=ep2.get("ip"))/ICMP())
+    ans,unans=sr(IP(dst=ep2.get(EP_IP))/ICMP())
 
 def send_multicast_data(ep1, ep2):
     '''Send a multicast packet from EP1 to
        the multicast group subscribed by EP2'''
 
-def wait_packet(packetdict):
+def wait_packet(packetarray):
     '''Wait for any packet on a given endpoint.
        The packet that we're waiting for is defined
        by the packetdict dictionary.  The packetdict
-       allows specifying BPF constructs using the 
-       "filter" key.'''
-    
+       allows specifying the parameters used to define
+       the traffic that is waited for. The following are
+       the parameters supported in the dictionary:
 
+          count: number of packets to capture. 0 means infinity
+          store: wether to store sniffed packets or discard them
+            prn: function to apply to each packet. If something is returned,
+                 it is displayed. Ex:
+                 ex: prn = lambda x: x.summary()
+        lfilter: python function applied to each packet to determine
+                 if further action may be done
+                 ex: lfilter = lambda x: x.haslayer(Padding)
+        offline: pcap file to read packets from, instead of sniffing them
+        timeout: stop sniffing after a given time (default: None)
+        L2socket: use the provided L2socket
+        opened_socket: provide an object ready to use .recv() on
+        stop_filter: python function applied to each packet to determine
+                     if we have to stop the capture after this packet
+                     ex: stop_filter = lambda x: x.haslayer(TCP)
+       '''
+    optstring=''
+    for opt in packetarray:
+        optstring += opt + ','
+    pkts=eval("sniff(" + optstring[:-1] + ")")
+    return pkts

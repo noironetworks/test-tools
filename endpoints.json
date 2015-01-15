@@ -2,21 +2,21 @@
   "ep1": {
       "policy-space": "test",
       "endpoint-group": "group1",
-      "interface-name": "s1-eth1",
+      "interface-name": "eth0",
       "ip": [
-          "10.0.0.1"
+          "192.168.194.1"
       ],
-      "mac": "00:00:00:00:00:01",
+      "mac": "00:50:56:c0:00:08",
       "uuid": "83f18f0b-80f7-46e2-b06c-4d9487b0c754"
   },
   "ep2": {
       "policy-space": "test",
       "endpoint-group": "group1",
-      "interface-name": "s1-eth2",
+      "interface-name": "eth0",
       "ip": [
-          "10.0.0.2"
+          "192.168.194.140"
       ],
-      "mac": "00:00:00:00:00:02",
+      "mac": "00:0c:29:56:ff:53",
       "uuid": "bc2d9818-2d79-4ec6-8bd0-fd6ff5a58b54"
   }
 }
