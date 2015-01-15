@@ -25,9 +25,28 @@ SNIFF_IFACE='iface'
 
 DEFAULT_TIMEOUT=10
 
+BROADCAST_MAC="ff:ff:ff:ff:ff:ff"
 EP_IFACE_NAME='interface-name'
 EP_MAC='mac'
 EP_IP='ip'
+
+class Ep:
+    '''Class to keep endpoint state.'''
+    def __init__(self, ip, mac):
+        self.ip=ip
+        self.mac=mac
+
+    def set_ip(self, ip):
+        self.ip=ip
+
+    def set_mac(self, mac):
+        self.mac=mac
+
+    def get_mac(self, mac):
+        return self.mac
+
+    def get_ip(self, ip):
+        return self.ip
 
 class TestConfig:
     '''The TestConfig class is what keeps the configuration needed
@@ -119,30 +138,31 @@ class TestConfig:
 def send_arp_request(ep1, ep2):
     '''Send an ARP request from EP1, trying
        to resolve the IP for EP2'''
-    sendp(Ether(dst="ff:ff:ff:ff:ff:ff")/
+    sendp(Ether(dst=BROADCAST_MAC)/
            ARP(pdst=ep2.get(EP_IP)[0], psrc=ep1.get(EP_IP)[0]),
                  iface=ep1.get(EP_IFACE_NAME))
 
-def wait_arp_request(ep1, ep2):
+def wait_arp_request(ep1, ep2, timeout=DEFAULT_TIMEOUT):
     '''Wait for an ARP request from EP1 on EP2'''
     opts=[]
     opts.append(SNIFF_FILTER + "='arp'")
-    opts.append(SNIFF_TIMEOUT + "=" + str(DEFAULT_TIMEOUT))
+    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
     opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
 
     pkts=wait_packet(opts)
     for pkt in pkts:
         if (ARP in pkt and pkt[ARP].op == 1 and
+            pkt['Ethernet'].dst == BROADCAST_MAC and
             pkt[ARP].psrc == ep1.get(EP_IP)[0] and
             pkt[ARP].pdst == ep2.get(EP_IP)[0]):
             print "Received ARP Req from EP1 to EP2"
 
-def send_arp_request_wait(ep1, ep2):
+def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
     '''Send an ARP request from EP1, trying
        to resolve the IP for EP2, and wait
        for the response.'''
-    ans,unans=srp1(Ether(dst="ff:ff:ff:ff:ff:ff")/
-        ARP(pdst=ep2.get(EP_IP)),iface=ep1.get(EP_IFACE_NAME), timeout=2)
+    ans,unans=srp1(Ether(dst=BROADCAST_MAC)/
+        ARP(pdst=ep2.get(EP_IP)),timeout,iface=ep1.get(EP_IFACE_NAME))
     if ans == null:
         print "No response to ARP"
     else:
@@ -155,32 +175,56 @@ def send_arp_response(ep1, ep2):
     sendp(Ether(src=ep2.get(EP_MAC),dst=ep1.get(EP_MAC))/ARP(op="is-at", 
           psrc=ep2.get(EP_IP), pdst=ep1.get(EP_IP)))
 
-def send_arp_request_wait(ep1, ep2):
-    '''Send an ARP request from EP1, trying
-       to resolve the IP for EP2, and wait
-       for the response.'''
-    ans,unans=srp1(Ether(dst="ff:ff:ff:ff:ff:ff")/
-        ARP(pdst=ep2.get(EP_IP)),iface=ep1.get(EP_IFACE_NAME), timeout=2)
-    if ans == null:
-        print "No response to ARP"
-    else:
-        ans.summary(lambda (s,r): r.sprintf("IP %ARP.psrc% has MAC %Ether.src%"))
-
-
-def send_arp_response(ep1, ep2):
-    '''Send an ARP response to EP2 from EP1,
-       providing EP1's ARP resolution'''
-    sendp(Ether(src=ep2.get(EP_MAC),dst=ep1.get(EP_MAC))/ARP(op="is-at", 
-          psrc=ep2.get(EP_IP), pdst=ep1.get(EP_IP)))
-
-def send_ping(ep1, ep2):
+def send_icmp_request(ep1, ep2):
     '''Send a ping request from EP1 to EP2, but
        don't wait for the response'''
+    sendp(Ether(src=ep1.get(EP_MAC),dst=ep2.get(EP_MAC))/
+            IP(src=ep1.get(EP_IP)[0], dst=ep2.get(EP_IP)[0])/ICMP(), iface=ep1.get(EP_IFACE_NAME))
 
-def send_ping_wait(ep1, ep2):
+def wait_icmp_request(ep1, ep2, timeout=DEFAULT_TIMEOUT):
+    '''Wait for an ICMP echo request from EP1 on EP2'''
+    opts=[]
+    opts.append(SNIFF_FILTER + "='icmp'")
+    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
+    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
+
+    pkts=wait_packet(opts)
+    for pkt in pkts:
+        if (ICMP in pkt and pkt['ICMP'].type == 8 and
+            pkt['Ethernet'].dst == ep2.get(EP_MAC) and
+            pkt['IP'].src == ep1.get(EP_IP)[0] and
+            pkt['IP'].dst == ep2.get(EP_IP)[0]):
+            print "Received ICMP echo request from EP1 to EP2"
+
+def send_icmp_wait(ep1, ep2):
     '''Send a ping request from EP1 to EP2, and
        wait for the response'''
     ans,unans=sr(IP(dst=ep2.get(EP_IP))/ICMP())
+
+def send_tcp_data(ep1, ep2, dport, data):
+    '''Send a TCP packet from EP1 to EP2 with the specified data,
+       using the specified TCP destination port.'''
+    sendp(Ether(src=ep1.get(EP_MAC),dst=ep2.get(EP_MAC))/
+            IP(src=ep1.get(EP_IP)[0], dst=ep2.get(EP_IP)[0])/
+            TCP(dport=dport), iface=ep1.get(EP_IFACE_NAME))
+
+def wait_tcp_data(ep1, ep2, dport, data, timeout=DEFAULT_TIMEOUT):
+    '''Wait for a TCP packet on the specified port from EP1 to EP2
+       with the specified data'''
+    opts=[]
+    opts.append(SNIFF_FILTER + "='tcp'")
+    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
+    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
+
+    pkts=wait_packet(opts)
+    for pkt in pkts:
+        if (TCP in pkt and pkt['TCP'].dport == dport and
+            pkt['Ethernet'].dst == ep2.get(EP_MAC) and
+            pkt['IP'].src == ep1.get(EP_IP)[0] and
+            pkt['IP'].dst == ep2.get(EP_IP)[0]):
+
+            # TODO: verify the data is in the packet
+            print "Received TCP packet from EP1 to EP2"
 
 def send_multicast_data(ep1, ep2):
     '''Send a multicast packet from EP1 to
@@ -189,17 +233,17 @@ def send_multicast_data(ep1, ep2):
 def wait_packet(packetarray):
     '''Wait for any packet on a given endpoint.
        The packet that we're waiting for is defined
-       by the packetdict dictionary.  The packetdict
+       by the packetarray array.  The packetarray
        allows specifying the parameters used to define
        the traffic that is waited for. The following are
-       the parameters supported in the dictionary:
+       the parameters supported in the array:
 
           count: number of packets to capture. 0 means infinity
           store: wether to store sniffed packets or discard them
             prn: function to apply to each packet. If something is returned,
                  it is displayed. Ex:
                  ex: prn = lambda x: x.summary()
-        lfilter: python function applied to each packet to determine
+         filter: python function applied to each packet to determine
                  if further action may be done
                  ex: lfilter = lambda x: x.haslayer(Padding)
         offline: pcap file to read packets from, instead of sniffing them
