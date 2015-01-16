@@ -12,6 +12,8 @@ from scapy.all import *
 # comes from. It likely comes from a configuration 
 # file.
 
+BROADCAST_MAC="ff:ff:ff:ff:ff:ff"
+
 CONFIG_SOURCE='source'
 CONFIG_SOURCE_FILE='file'
 DEFAULT_CFG_FILE_NAME='endpoints.json'
@@ -25,28 +27,70 @@ SNIFF_IFACE='iface'
 
 DEFAULT_TIMEOUT=10
 
-BROADCAST_MAC="ff:ff:ff:ff:ff:ff"
-EP_IFACE_NAME='interface-name'
-EP_MAC='mac'
-EP_IP='ip'
+
+OS_EP_IFACE_NAME='interface-name'
+OS_EP_MAC='mac'
+OS_EP_IP='ip'
+OS_EP_POLICY='policy-space'
+OS_EP_EPG='endpoint-group'
+OS_EP_UUID='uuid'
+
+ODL_EP_MAC='mac-address'
+ODL_EP_MAC='ip-address'
+
+ODL_EP_TYPE='OpenDaylight'
+OS_EP_TYPE='OpenStack'
 
 class Ep:
-    '''Class to keep endpoint state.'''
-    def __init__(self, ip, mac):
-        self.ip=ip
-        self.mac=mac
-
-    def set_ip(self, ip):
-        self.ip=ip
+    '''Class to keep endpoint state. It provides a normalized 
+       interface, regardless of the underlying type of endpoint 
+       (OpenDaylight, OpenStack, etc.).'''
+    def __init__(self, ep_type, ep):
+        if ep_type == ODL_EP_TYPE:
+            print ODL_EP_TYPE + " is not yet supported"
+        elif ep_type == OS_EP_TYPE:
+            if ep.get(OS_EP_MAC) != None:
+                self.mac=ep.get(OS_EP_MAC)
+            if ep.get(OS_EP_IP) != None:
+                self.ip=ep.get(OS_EP_IP)[0]
+            if ep.get(OS_EP_IFACE_NAME) != None:
+                self.interface=ep.get(OS_EP_IFACE_NAME)
+            if ep.get(OS_EP_POLICY) != None:
+                self.policy=ep.get(OS_EP_POLICY)
+            if ep.get(OS_EP_EPG) != None:
+                self.epg=ep.get(OS_EP_EPG)
+            if ep.get(OS_EP_UUID) != None:
+                self.uuid=ep.get(OS_EP_UUID)
 
     def set_mac(self, mac):
         self.mac=mac
 
-    def get_mac(self, mac):
+    def get_mac(self):
         return self.mac
 
-    def get_ip(self, ip):
+    def set_ip(self, ip):
+        self.ip=ip
+
+    def get_ip(self):
         return self.ip
+
+    def set_interface(self, interface):
+        self.interface = interface
+
+    def get_interface(self):
+        return self.interface
+
+    def set_policy(self, policy):
+        self.policy = policy
+
+    def get_policy(self):
+        return self.policy
+
+    def set_epg(self, epg):
+        self.epg = epg
+
+    def get_epg(self):
+        return self.epg
 
 class TestConfig:
     '''The TestConfig class is what keeps the configuration needed
@@ -108,9 +152,12 @@ class TestConfig:
 
     def __init__(self):
         '''Initialize the test configuration'''
-        self.config={EP_DB_NAME: [], CONFIG_SOURCE: CONFIG_SOURCE_FILE }
+        self.config = ({ EP_DB_NAME: [], 
+                         CONFIG_SOURCE: CONFIG_SOURCE_FILE 
+                       })
         self.cfg_file_name = DEFAULT_CFG_FILE_NAME
         self.cfg_file = None
+        self.epdb = []
 
     def set_config_source(self, source):
         self.config[CONFIG_SOURCE] = source
@@ -127,34 +174,75 @@ class TestConfig:
         if source == CONFIG_SOURCE_FILE:
             self.get_config_from_file()
     
+    def create_ep_db(self):
+        '''Creat the Ep objects from the JSON data'''
+        if self.config != None:
+            for ep in self.config[EP_DB_NAME]:
+                e = self.config[EP_DB_NAME].get(ep)
+                # Find out what type of EP we've got
+                if ODL_EP_MAC in e:
+                    self.epdb.append(Ep(ODL_EP_TYPE, e))
+                elif OS_EP_MAC in e:
+                    self.epdb.append(Ep(OS_EP_TYPE, e))
+
+
+def get_std_opts(ep2, timeout, proto):
+    opts=[]
+    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
+    opts.append(SNIFF_IFACE + "='" + ep2.get_interface() + "'")
+    opts.append(SNIFF_FILTER + "='" + proto + "'")
+    return opts
+
+def verify_eth(pkt, ep1, ep2):
+    if (pkt['Ethernet'].src == ep1.get_mac() and
+        pkt['Ethernet'].dst == ep2.get_mac()):
+        return True
+    else:
+        return False
+
+def verify_arp(pkt, ep1, ep2):
+    if (pkt[ARP].psrc == ep1.get_ip() and
+        pkt[ARP].pdst == ep2.get_ip()):
+        return True
+    else:
+        return False
+
+def verify_ip(pkt, ep1, ep2):
+    if (pkt[IP].src == ep1.get_ip() and
+        pkt[IP].dst == ep2.get_ip()):
+        return True
+    else:
+        return False
+
+def verify_signature(pkt, signature):
+    if signature == '':
+        return True
+    elif ('Raw' in pkt and signature in [pkt['Raw'].load]):
+        return True
+    return False
 
 
 # The following are methods that are just wrappers around scapy
 # calls, which provide the ability to send/receive packets using
-# endpoints as identifiers.  They aren't useful yet, and are just
-# placeholders for promised functionality (i.e. don't read too 
-# much into the scapy calls that are there -- just put them 
-# so that I could remember some of the useful calls).
+# endpoints as identifiers.  These could be moved into the EPs,
+# as then you'd only have to specify one of the EPs; however, 
+# it may be just as easy to keep these as standalone functions
+# since you'll be operating with sets of EPs anyway.
 def send_arp_request(ep1, ep2):
     '''Send an ARP request from EP1, trying
        to resolve the IP for EP2'''
     sendp(Ether(dst=BROADCAST_MAC)/
-           ARP(pdst=ep2.get(EP_IP)[0], psrc=ep1.get(EP_IP)[0]),
-                 iface=ep1.get(EP_IFACE_NAME))
+          ARP(pdst=ep2.get_ip(), psrc=ep1.get_ip()),
+          iface=ep1.get_interface())
 
 def wait_arp_request(ep1, ep2, timeout=DEFAULT_TIMEOUT):
     '''Wait for an ARP request from EP1 on EP2'''
-    opts=[]
-    opts.append(SNIFF_FILTER + "='arp'")
-    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
-    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
-
+    opts=get_std_opts(ep2, timeout, 'arp')
     pkts=wait_packet(opts)
     for pkt in pkts:
         if (ARP in pkt and pkt[ARP].op == 1 and
             pkt['Ethernet'].dst == BROADCAST_MAC and
-            pkt[ARP].psrc == ep1.get(EP_IP)[0] and
-            pkt[ARP].pdst == ep2.get(EP_IP)[0]):
+            verify_arp(pkt, ep1, ep2)):
             print "Received ARP Req from EP1 to EP2"
 
 def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
@@ -162,7 +250,7 @@ def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
        to resolve the IP for EP2, and wait
        for the response.'''
     ans,unans=srp1(Ether(dst=BROADCAST_MAC)/
-        ARP(pdst=ep2.get(EP_IP)),timeout,iface=ep1.get(EP_IFACE_NAME))
+        ARP(pdst=ep2.get_ip()),timeout,iface=ep1.get_interface())
     if ans == null:
         print "No response to ARP"
     else:
@@ -172,63 +260,78 @@ def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
 def send_arp_response(ep1, ep2):
     '''Send an ARP response to EP2 from EP1,
        providing EP1's ARP resolution'''
-    sendp(Ether(src=ep2.get(EP_MAC),dst=ep1.get(EP_MAC))/ARP(op="is-at", 
-          psrc=ep2.get(EP_IP), pdst=ep1.get(EP_IP)))
+    sendp(Ether(src=ep2.get_mac(),dst=ep1.get_mac())/
+          ARP(op="is-at", psrc=ep2.get_ip(), pdst=ep1.get_ip()))
 
-def send_icmp_request(ep1, ep2):
+def send_icmp_request(ep1, ep2, signature=''):
     '''Send a ping request from EP1 to EP2, but
        don't wait for the response'''
-    sendp(Ether(src=ep1.get(EP_MAC),dst=ep2.get(EP_MAC))/
-            IP(src=ep1.get(EP_IP)[0], dst=ep2.get(EP_IP)[0])/ICMP(), iface=ep1.get(EP_IFACE_NAME))
+    sendp(Ether(src=ep1.get_mac(),dst=ep2.get_mac())/
+          IP(src=ep1.get_ip(), dst=ep2.get_ip())/
+          ICMP(), iface=ep1.get_interface())
 
-def wait_icmp_request(ep1, ep2, timeout=DEFAULT_TIMEOUT):
+def wait_icmp_request(ep1, ep2, signature='', timeout=DEFAULT_TIMEOUT):
     '''Wait for an ICMP echo request from EP1 on EP2'''
-    opts=[]
-    opts.append(SNIFF_FILTER + "='icmp'")
-    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
-    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
-
+    opts=get_std_opts(ep2, timeout, 'icmp')
     pkts=wait_packet(opts)
     for pkt in pkts:
         if (ICMP in pkt and pkt['ICMP'].type == 8 and
-            pkt['Ethernet'].dst == ep2.get(EP_MAC) and
-            pkt['IP'].src == ep1.get(EP_IP)[0] and
-            pkt['IP'].dst == ep2.get(EP_IP)[0]):
+            verify_eth(pkt, ep1, ep2) and
+            verify_ip(pkt, ep1, ep2) and
+            verify_signature(pkt, signature)):
             print "Received ICMP echo request from EP1 to EP2"
 
-def send_icmp_wait(ep1, ep2):
-    '''Send a ping request from EP1 to EP2, and
-       wait for the response'''
-    ans,unans=sr(IP(dst=ep2.get(EP_IP))/ICMP())
+#def send_icmp_wait(ep1, ep2):
+#    '''Send a ping request from EP1 to EP2, and
+#       wait for the response'''
+#    ans,unans=sr(IP(dst=ep2.get_ip())/ICMP())
 
-def send_tcp_data(ep1, ep2, dport, data):
-    '''Send a TCP packet from EP1 to EP2 with the specified data,
+def send_tcp_data(ep1, ep2, dport, signature=''):
+    '''Send a TCP packet from EP1 to EP2 with the specified signature,
        using the specified TCP destination port.'''
-    sendp(Ether(src=ep1.get(EP_MAC),dst=ep2.get(EP_MAC))/
-            IP(src=ep1.get(EP_IP)[0], dst=ep2.get(EP_IP)[0])/
-            TCP(dport=dport), iface=ep1.get(EP_IFACE_NAME))
+    sendp(Ether(src=ep1.get_mac(),dst=ep2.get_mac())/
+          IP(src=ep1.get_ip(), dst=ep2.get_ip())/
+          TCP(dport=dport)/
+          Raw(load=signature), iface=ep1.get_interface())
 
-def wait_tcp_data(ep1, ep2, dport, data, timeout=DEFAULT_TIMEOUT):
+def wait_tcp_data(ep1, ep2, dport, signature='', timeout=DEFAULT_TIMEOUT):
     '''Wait for a TCP packet on the specified port from EP1 to EP2
-       with the specified data'''
-    opts=[]
-    opts.append(SNIFF_FILTER + "='tcp'")
-    opts.append(SNIFF_TIMEOUT + "=" + str(timeout))
-    opts.append(SNIFF_IFACE + "='" + ep2.get(EP_IFACE_NAME) + "'")
-
+       with the specified signature'''
+    opts=get_std_opts(ep2, timeout, 'tcp')
     pkts=wait_packet(opts)
     for pkt in pkts:
         if (TCP in pkt and pkt['TCP'].dport == dport and
-            pkt['Ethernet'].dst == ep2.get(EP_MAC) and
-            pkt['IP'].src == ep1.get(EP_IP)[0] and
-            pkt['IP'].dst == ep2.get(EP_IP)[0]):
-
-            # TODO: verify the data is in the packet
+            verify_eth(pkt, ep1, ep2) and
+            verify_ip(pkt, ep1, ep2) and
+            verify_signature(pkt, signature)):
             print "Received TCP packet from EP1 to EP2"
 
-def send_multicast_data(ep1, ep2):
+def send_udp_data(ep1, ep2, dport, signature=''):
+    '''Send a UDP packet from EP1 to EP2 with the specified signature,
+       using the specified UDP destination port.'''
+    sendp(Ether(src=ep1.get_mac(),dst=ep2.get_mac())/
+            IP(src=ep1.get_ip(), dst=ep2.get_ip())/
+            UDP(dport=dport)/
+            Raw(load=signature), iface=ep1.get_interface())
+
+def wait_udp_data(ep1, ep2, dport, signature='', timeout=DEFAULT_TIMEOUT):
+    '''Wait for a UDP packet on the specified port from EP1 to EP2
+       with the specified signature'''
+    opts=get_std_opts(ep2, timeout, 'udp')
+    pkts=wait_packet(opts)
+    for pkt in pkts:
+        if (UDP in pkt and pkt['UDP'].dport == dport and
+            verify_eth(pkt, ep1, ep2) and
+            verify_ip(pkt, ep1, ep2) and
+            verify_signature(pkt, signature)):
+            print "Received UDP packet from EP1 to EP2"
+
+def send_multicast_data(ep1, mcast_ip):
     '''Send a multicast packet from EP1 to
        the multicast group subscribed by EP2'''
+    sendp(Ether(src=ep1.get(EP_MAC))/
+          IP(src=ep1.get_ip(), dst=mcast_ip)/
+          UDP(), iface=ep1.get_interface())
 
 def wait_packet(packetarray):
     '''Wait for any packet on a given endpoint.
