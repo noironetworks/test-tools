@@ -6,12 +6,6 @@
 import json
 from scapy.all import *
 
-# The typical parameters for all of these functions
-# are things like the number of EPs, the identifiers
-# for the EPs, etc.  One question is where this data
-# comes from. It likely comes from a configuration 
-# file.
-
 BROADCAST_MAC="ff:ff:ff:ff:ff:ff"
 
 CONFIG_SOURCE='source'
@@ -41,6 +35,25 @@ ODL_EP_MAC='ip-address'
 ODL_EP_TYPE='OpenDaylight'
 OS_EP_TYPE='OpenStack'
 
+#
+#  This is sample python code for how this module could
+#  be used:
+#
+#  <on both VMs>:
+#
+#     from trafficgen import *
+#
+#     x=TestConfig()
+#     x.get_configuration()
+#     x.create_ep_db()
+#     ep1 = x.epdb[0]
+#     ep2 = x.epdb[1]
+#
+# <on VM #1>
+#     wait_tcp_data(ep1, ep2, 80, 'foobar-t-robot', timeout=5)
+# <on VM #2>
+#     send_tcp_data(ep1, ep2, 80, 'foobar-t-robot')
+#
 class Ep:
     '''Class to keep endpoint state. It provides a normalized 
        interface, regardless of the underlying type of endpoint 
@@ -245,16 +258,17 @@ def wait_arp_request(ep1, ep2, timeout=DEFAULT_TIMEOUT):
             verify_arp(pkt, ep1, ep2)):
             print "Received ARP Req from EP1 to EP2"
 
-def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
-    '''Send an ARP request from EP1, trying
-       to resolve the IP for EP2, and wait
-       for the response.'''
-    ans,unans=srp1(Ether(dst=BROADCAST_MAC)/
-        ARP(pdst=ep2.get_ip()),timeout,iface=ep1.get_interface())
-    if ans == null:
-        print "No response to ARP"
-    else:
-        ans.summary(lambda (s,r): r.sprintf("IP %ARP.psrc% has MAC %Ether.src%"))
+#def send_arp_request_wait(ep1, ep2, timeout=DEFAULT_TIMEOUT):
+#    '''Send an ARP request from EP1, trying
+#       to resolve the IP for EP2, and wait
+#       for the response.'''
+#    ans,unans=srp1(Ether(dst=BROADCAST_MAC)/
+#        ARP(pdst=ep2.get_ip(), psrc=ep1.get_ip()),
+#        iface=ep1.get_interface())
+#    if ans == null:
+#        print "No response to ARP"
+#    else:
+#        ans.summary(lambda (s,r): r.sprintf("IP %ARP.psrc% has MAC %Ether.src%"))
 
 
 def send_arp_response(ep1, ep2):
