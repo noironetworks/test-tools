@@ -5,6 +5,7 @@
 
 import json
 from scapy.all import *
+from multiprocessing import Process
 
 BROADCAST_MAC="ff:ff:ff:ff:ff:ff"
 
@@ -53,6 +54,14 @@ OS_EP_TYPE='OpenStack'
 #     wait_tcp_data(ep1, ep2, 80, 'foobar-t-robot', timeout=5)
 # <on VM #2>
 #     send_tcp_data(ep1, ep2, 80, 'foobar-t-robot')
+#
+#  You can also create a list of processes to execute, so that you
+#  can send and receive at the same time.  As an example:
+#
+#     plist=[(wait_tcp_data,(ep1, ep2, 80, 'foobar-t-robot', 5)),(send_tcp_data,(ep1, ep2, 80, 'foobar-t-robot'))]
+#     pidlist=create_multi(plist)
+#     for pid in pidlist:
+#         pid.start()
 #
 class Ep:
     '''Class to keep endpoint state. It provides a normalized 
@@ -376,3 +385,19 @@ def wait_packet(packetarray):
         optstring += opt + ','
     pkts=eval("sniff(" + optstring[:-1] + ")")
     return pkts
+
+def create_multi(plist):
+    '''Create a process per item in the list
+       Items in the list should be tuples, where
+       the first item in the tuple is a function
+       and the second item in the tuple is another
+       tuple for the arguments to that function.
+       The process objects are returned as a list.'''
+    pids=[]
+    # create list of process objects
+    for p in plist:
+        f,args = p
+        pid = Process(target=f, args=args)
+        pids.append(pid)
+
+    return pids
